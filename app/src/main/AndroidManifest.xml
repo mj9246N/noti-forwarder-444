@@ -10,6 +10,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
+        <!-- فعالیت اصلی با دکمه‌های فعال‌سازی و لاگ -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -19,7 +20,12 @@
             </intent-filter>
         </activity>
 
-        <!-- سرویس Accessibility به جای NotificationListener -->
+        <!-- صفحه‌ی نمایش لاگ‌ها -->
+        <activity
+            android:name=".LogActivity"
+            android:label="لاگ‌ها" />
+
+        <!-- سرویس دسترسی برای دریافت همهٔ اعلان‌ها -->
         <service
             android:name=".NotiAccessibilityService"
             android:exported="true"
@@ -32,7 +38,7 @@
                 android:resource="@xml/accessibility_config" />
         </service>
 
-        <!-- رسیور قطع و وصل اینترنت برای ارسال صف -->
+        <!-- رسیور قطع و وصل اینترنت برای ارسال اعلان‌های ذخیره‌شده -->
         <receiver android:name=".NetworkReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
