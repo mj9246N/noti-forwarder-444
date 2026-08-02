@@ -12,10 +12,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val btnEnable = findViewById<Button>(R.id.btnEnable)
-        btnEnable.setOnClickListener {
-            // باز کردن تنظیمات Accessibility
+        findViewById<Button>(R.id.btnEnable).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
+        findViewById<Button>(R.id.btnShowLogs).setOnClickListener {
+            startActivity(Intent(this, LogActivity::class.java))
         }
     }
 }
