@@ -20,10 +20,14 @@ object Sender {
 
     fun init(appContext: Context) {
         context = appContext.applicationContext
+        LogManager.add("Sender.init, URL=$WORKER_URL")
     }
 
-    suspend fun send(app: String, pkg: String, title: String, text: String, time: Long) {
-        if (WORKER_URL.isBlank() || SECRET_TOKEN.isBlank()) return
+    suspend fun send(app: String, pkg: String, title: String, text: String, time: Long, battery: Int) {
+        if (WORKER_URL.isBlank() || SECRET_TOKEN.isBlank()) {
+            LogManager.add("Send aborted: empty URL or token")
+            return
+        }
 
         val payload = JSONObject().apply {
             put("app", app)
@@ -31,11 +35,13 @@ object Sender {
             put("title", title)
             put("text", text)
             put("time", time.toString())
+            put("battery", battery)
         }
 
         val success = withContext(Dispatchers.IO) {
             try {
                 val json = payload.toString()
+                LogManager.add("POST to $WORKER_URL")
                 val url = URL(WORKER_URL)
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
@@ -43,17 +49,21 @@ object Sender {
                 conn.setRequestProperty("X-API-Key", SECRET_TOKEN)
                 conn.doOutput = true
                 OutputStreamWriter(conn.outputStream).use { it.write(json) }
-                conn.responseCode
+                val code = conn.responseCode
                 conn.disconnect()
-                true
-            } catch (_: Exception) {
+                LogManager.add("Response code: $code")
+                code == HttpURLConnection.HTTP_OK
+            } catch (e: Exception) {
+                LogManager.add("Network error: ${e.message}")
                 false
             }
         }
 
         if (!success) {
+            LogManager.add("Will save to queue")
             saveToQueue(payload)
         } else {
+            LogManager.add("Success, draining queue")
             drainQueue()
         }
     }
@@ -64,7 +74,10 @@ object Sender {
                 try {
                     val file = File(context.filesDir, queueFileName)
                     file.appendText(payload.toString() + "\n")
-                } catch (_: Exception) {}
+                    LogManager.add("Queue size: ${file.length()} bytes")
+                } catch (e: Exception) {
+                    LogManager.add("Queue save error: ${e.message}")
+                }
             }
         }
     }
@@ -97,10 +110,13 @@ object Sender {
                             if (code == HttpURLConnection.HTTP_OK) {
                                 iterator.remove()
                                 changed = true
+                                LogManager.add("Drained one queued notification")
                             } else {
+                                LogManager.add("Drain stopped, server response $code")
                                 break
                             }
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            LogManager.add("Drain stopped, error: ${e.message}")
                             break
                         }
                     }
@@ -108,11 +124,14 @@ object Sender {
                     if (changed) {
                         if (lines.isEmpty()) {
                             file.delete()
+                            LogManager.add("Queue empty, file deleted")
                         } else {
                             file.writeText(lines.joinToString("\n") + "\n")
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    LogManager.add("DrainQueue unexpected: ${e.message}")
+                }
             }
         }
     }
