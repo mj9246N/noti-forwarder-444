@@ -26,6 +26,13 @@ class NotiAccessibilityService : AccessibilityService() {
         if (event?.eventType != AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) return
 
         val packageName = event.packageName?.toString() ?: return
+        
+        // فیلتر کردن بسته incallui (عدم ارسال اعلان‌های آن)
+        if (packageName == "com.android.incallui") {
+            LogManager.add("Filtered out: $packageName")
+            return
+        }
+
         LogManager.add("Event received from: $packageName")
 
         val notification = event.parcelableData
