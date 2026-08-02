@@ -17,4 +17,10 @@
         android:layout_height="wrap_content"
         android:text="فعال‌سازی سرویس دسترسی"/>
 
+    <Button
+        android:id="@+id/btnShowLogs"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="نمایش لاگ‌ها"/>
+
 </LinearLayout>
